@@ -1,0 +1,30 @@
+{
+  "name": "@polygon.io/tradingview-adapter",
+  "version": "1.0.0",
+  "description": "Polygon.io integration library for using TradingView charting library.",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Polygon-io/tradingview-adapter.git"
+  },
+  "keywords": [
+    "polygon.io",
+    "tradingview",
+    "charting",
+    "stocks",
+    "trading"
+  ],
+  "author": "Polygon.io",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Polygon-io/tradingview-adapter/issues"
+  },
+  "homepage": "https://github.com/Polygon-io/tradingview-adapter#readme",
+  "devDependencies": {
+    "axios": "^0.18.0",
+    "lodash": "^4.17.11"
+  }
+}
