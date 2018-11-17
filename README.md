@@ -19,7 +19,7 @@ const widget = new TradingView.widget({
 	timezone: 'America/New_York',
 	container_id: "tv_chart_container", /* ID of the container element */
 	datafeed: client, /* Our Polygon.io Adapter */
-	library_path: "/charting_library/",
+	library_path: "/charting_library/", /* Where your TV Library files reside */
 	locale: "en",
 	disabled_features: ["use_localstorage_for_settings"],
 	enabled_features: ["study_templates"],
