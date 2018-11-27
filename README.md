@@ -11,7 +11,11 @@ JS Library for using Polygon.io with TradingView charting.
 
 import PolygonAdapter from '@polygon.io/tradingview-adapter'
 
-const client = new PolygonAdapter({ apikey: 'YOUR_APIKEY' })
+const client = new PolygonAdapter({
+	apikey: 'YOUR_APIKEY',
+	realtimeEnabled: true 	// True(default) = Use websockets for updates. False = use polling for new data.
+})
+
 const widget = new TradingView.widget({
 	fullscreen: true,
 	symbol: 'AAPL',
