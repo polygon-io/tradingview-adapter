@@ -7,6 +7,8 @@ import Filter from 'lodash/filter'
 import Debounce from 'lodash/debounce'
 import axios from 'axios'
 
+import PolygonWebsockets from './websockets.js'
+
 const BASE_URL = `https://api.polygon.io`
 const POLL_INTERVAL = 15 // seconds
 
@@ -21,6 +23,7 @@ class PolygonAdapter {
 	constructor( params ){
 		this.subscriptions = []
 		this.apikey = params.apikey
+		this.realtimeEnabled = params.realtimeEnabled || true
 		this.searchSymbols = Debounce( this._searchSymbols, 250, { trailing: true })
 		return this
 	}
@@ -33,7 +36,11 @@ class PolygonAdapter {
 	 */
 	onReady( cb ){
 		console.log('Polygon Adapter Ready')
-		setInterval( this.onInterval.bind( this ), POLL_INTERVAL * 1000 )
+		if( this.realtimeEnabled ){
+			this.wsListeners()
+		}else{
+			setInterval( this.onInterval.bind( this ), POLL_INTERVAL * 1000 )
+		}
 		cb()
 	}
 
@@ -151,6 +158,7 @@ class PolygonAdapter {
 		}
 		// Currently only allow minute subscriptions:
 		if( sub.interval != '1' ) return
+		if( this.realtimeEnabled ) this.ws.subscribe(`AM.${symbolInfo.ticker}`)
 		this.subscriptions.push( sub )
 	}
 
@@ -162,6 +170,28 @@ class PolygonAdapter {
 	 */
 	unsubscribeBars( key ){
 		this.subscriptions = Filter( this.subscriptions, ( s ) => s.key != key )
+	}
+
+
+	/**
+	 *  Add the websocket listeners and start the connection:
+	 *  @return {null}
+	 */
+	wsListeners(){
+		if( !this.realtimeEnabled ) return
+		this.ws = new PolygonWebsockets({ apiKey: this.apikey })
+		this.ws.on('AM', ( aggMin ) => {
+			Each( this.subscriptions, ( sub ) => {
+				sub.callback( {
+					open: aggMin.o,
+					close: aggMin.c,
+					high: aggMin.h,
+					low: aggMin.l,
+					volume: aggMin.v,
+					time: aggMin.s,
+				})
+			})
+		})
 	}
 
 
