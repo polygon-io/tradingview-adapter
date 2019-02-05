@@ -3,6 +3,8 @@
 import Each from 'lodash/each'
 import Map from 'lodash/map'
 import Last from 'lodash/last'
+import Find from 'lodash/find'
+import Includes from 'lodash/includes'
 import Filter from 'lodash/filter'
 import Debounce from 'lodash/debounce'
 import axios from 'axios'
@@ -11,6 +13,8 @@ import PolygonWebsockets from './websockets.js'
 
 const BASE_URL = `https://api.polygon.io`
 const POLL_INTERVAL = 15 // seconds
+
+const SUPPORTED_RESOLUTIONS = ['1', '3', '5', '15', '30', '45', '60', '120', '180', '240', '1D', '1W', '1M', '12M']
 
 class PolygonAdapter {
 
@@ -69,16 +73,23 @@ class PolygonAdapter {
 	 *  @return {null}
 	 */
 	_searchSymbols( input, exchange, symbolType, cb ){
-		axios.get(`${BASE_URL}/v1/meta/symbols/${input}/company?apiKey=${this.apikey}`).then(( res ) => {
-			cb([{
-				symbol: res.data.symbol,
-				full_name: res.data.name,
-				description: res.data.description,
-				exchange: res.data.exchangeSymbol,
-				ticker: res.data.symbol,
-				type: 'stock'
-			}])
+		axios({
+			url: `${BASE_URL}/v2/reference/tickers?search=${input}&apikey=${this.apikey}`,
+		}).then(( res ) => {
+			console.log('search results:', res)
+			cb( Map( res.data.tickers, ( item ) => {
+				return {
+					symbol: item.ticker,
+					ticker: item.ticker,
+					full_name: item.name,
+					description: `${item.name}`,
+					exchange: item.primaryExch,
+					type: item.market,
+					locale: item.locale,
+				}
+			}))
 		}).catch(( err ) => {
+			console.log('not found:', err)
 			cb([])
 		})
 	}
@@ -92,10 +103,10 @@ class PolygonAdapter {
 	 *  @return {null}
 	 */
 	resolveSymbol( symbol, cb, cberr ){
-		symbol = Last( symbol.split(':') ) // Get rid of exchange prefix
+		console.log('resolve symbol:', symbol)
 		axios.get(`${BASE_URL}/v1/meta/symbols/${symbol}/company?apiKey=${this.apikey}`).then(( data ) => {
 			let c = data.data
-			let obj = {
+			cb({
 				name: c.symbol,
 				ticker: c.symbol,
 				type: 'stock',
@@ -104,10 +115,25 @@ class PolygonAdapter {
 				has_intraday: true,
 				has_daily: true,
 				sector: c.industry,
-				supported_resolutions: ['1', '1D']
-			}
-			cb( obj )
-		}).catch( cberr )
+				supported_resolutions: SUPPORTED_RESOLUTIONS,
+			})
+		}).catch(( err ) => {
+			// This is a hack until the new API has a ticker details endpoint:
+			this._searchSymbols( symbol, null, null, ( res ) => {
+				let sym = Find( res, ( i ) => i.ticker == symbol )
+				cb({
+					name: sym.full_name,
+					ticker: sym.ticker,
+					type: sym.type,
+					exchange: sym.exchange,
+					sector: 'unknown',
+					supported_resolutions: SUPPORTED_RESOLUTIONS,
+					timezone: 'America/New_York',
+					has_intraday: ( sym.locale == 'US' || sym.type == 'CRYPTO' || sym.type == 'FX' || sym.exchange == 'GIDS' ),
+					has_daily: true,
+				})
+			}).catch( cberr )
+		})
 	}
 
 
@@ -122,11 +148,24 @@ class PolygonAdapter {
 	 *  @param  {Boolean}   firstRequest If this is the first request for this symbol
 	 *  @return {null}
 	 */
-	getBars( symbolInfo, resolution, from, to, cb, cberr, firstRequest ){
-		let type = 'minute'
-		if( resolution == 'D' || resolution == '1D' ) type = 'day'
-		axios.get(`${BASE_URL}/v1/historic/agg/${type}/${symbolInfo.ticker}?from=${from*1000}&to=${to*1000}&apiKey=${this.apikey}`).then(( data ) => {
-			let bars = Map( data.data.ticks, ( t ) => {
+	getBars( symbolInfo, resolution, fromts, to, cb, cberr, firstRequest ){
+		let multiplier = 1
+		let timespan = 'minute'
+		if( resolution == 'D' || resolution == '1D' ) timespan = 'day'
+		if( Includes(['1', '3', '5', '15', '30', '45'], resolution) ){
+			multiplier = parseInt( resolution )
+			timespan = 'minute'
+		}
+		if( Includes(['60', '120', '180', '240'], resolution) ){
+			timespan = 'hour'
+			multiplier = parseInt( resolution ) / 60
+		}
+		axios({
+			url: `${BASE_URL}/v2/aggs/ticker/${symbolInfo.ticker}/range/${multiplier}/${timespan}/${fromts*1000}/${to*1000}`,
+			params: { apikey: this.apikey }
+		}).then(( data ) => {
+			let bars = []
+			bars = Map( data.data.results, ( t ) => {
 				return {
 					time: t.t,
 					close: t.c, 
@@ -136,8 +175,9 @@ class PolygonAdapter {
 					volume: t.v,
 				}
 			})
-			return cb( bars, { noData: ( !bars ) })
+			return cb( bars, { noData: ( bars.length == 0 ) })
 		}).catch( cberr )
+
 	}
 
 	
