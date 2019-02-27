@@ -1,6 +1,6 @@
 {
   "name": "@polygon.io/tradingview-adapter",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Polygon.io integration library for using TradingView charting library.",
   "main": "src/index.js",
   "scripts": {
