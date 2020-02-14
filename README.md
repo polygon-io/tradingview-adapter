@@ -4,8 +4,8 @@
 
 <div align="center">
 	<h1>Polygon.io TradingView Adapter</h1>
+	JS Library for using Polygon.io with TradingView charting.
 </div>
-JS Library for using Polygon.io with TradingView charting.
 
 ### Installation
 
