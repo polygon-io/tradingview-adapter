@@ -1,8 +1,10 @@
 <p align="center">
-  <img src="misc/illustration.png" />
+	<img src="misc/illustration.png" />
 </p>
 
-# Polygon.io TradingView Adapter
+<div align="center">
+	<h1>Polygon.io TradingView Adapter</h1>
+</div>
 JS Library for using Polygon.io with TradingView charting.
 
 ### Installation
