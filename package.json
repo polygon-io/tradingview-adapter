@@ -24,7 +24,7 @@
   },
   "homepage": "https://github.com/Polygon-io/tradingview-adapter#readme",
   "devDependencies": {
-    "axios": "^0.18.0",
+    "axios": "^0.21.1",
     "eventemitter3": "^3.1.0",
     "lodash": "^4.17.11"
   }
