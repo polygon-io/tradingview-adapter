@@ -9,11 +9,12 @@ import Includes from 'lodash/includes'
 import Filter from 'lodash/filter'
 import Debounce from 'lodash/debounce'
 import axios from 'axios'
+import moment from "moment";
 
 import PolygonWebsockets from './websockets.js'
 
 const BASE_URL = `https://api.polygon.io`
-const POLL_INTERVAL = 15 // seconds
+const POLL_INTERVAL = 60 // seconds
 
 const SUPPORTED_RESOLUTIONS = ['1', '3', '5', '15', '30', '45', '60', '120', '180', '240', '1D', '1W', '1M', '12M']
 
@@ -28,7 +29,7 @@ class PolygonAdapter {
 	constructor( params ){
 		this.subscriptions = []
 		this.apikey = params.apikey
-		this.realtimeEnabled = params.realtimeEnabled || true
+		this.realtimeEnabled = params.realtimeEnabled
 		this.searchSymbols = Debounce( this._searchSymbols, 250, { trailing: true })
 		return this
 	}
@@ -56,8 +57,9 @@ class PolygonAdapter {
 	 */
 	onInterval(){
 		let now = Date.now()
+		console.log("SUBSCRIPTIONS",this.subscriptions)
 		Each( this.subscriptions, ( sub ) => {
-			this.getBars( sub.symbolInfo, sub.interval, ( ( now - 120*1000 ) / 1000 ), ( now / 1000 ), ( ticks ) => {
+			this.getBars( sub.symbolInfo, sub.interval, {from : ( ( now - 60*1000 ) / 1000 ), to :( now / 1000 )}, ( ticks ) => {
 				if( ticks.length == 0 ) return
 				sub.callback( ticks )
 			})
@@ -73,29 +75,28 @@ class PolygonAdapter {
 	 *  @param  {Function} cb         Callback for returning results
 	 *  @return {null}
 	 */
-	_searchSymbols( input, exchange, symbolType, cb ){
+	_searchSymbols( userInput, exchange, symbolType, onResultReadyCallback ){
 		axios({
-			url: `${BASE_URL}/v2/reference/tickers?search=${input}&apikey=${this.apikey}`,
+			url: `${BASE_URL}/v3/reference/tickers?search=${userInput}&apikey=${this.apikey}`,
 		}).then(( res ) => {
-			console.log('search results:', res)
-			cb( Map( res.data.tickers, ( item ) => {
+			onResultReadyCallback( Map( res.data.results, ( item ) => {
 				return {
 					symbol: item.ticker,
 					ticker: item.ticker,
 					full_name: item.name,
 					description: `${item.name}`,
-					exchange: item.primaryExch,
+					exchange: item.primary_exchange,
 					type: item.market,
 					locale: item.locale,
 				}
 			}))
 		}).catch(( err ) => {
 			console.log('not found:', err)
-			cb([])
+			onResultReadyCallback([])
 		})
 	}
 
-	
+
 	/**
 	 *  Resolving a symbol simply gets the company info for this symbol
 	 *  @param  {String}   symbol Symbol string we are requesting
@@ -110,21 +111,27 @@ class PolygonAdapter {
 			'FX': 'forex',
 			'CRYPTO': 'bitcoin',
 		}
-		axios.get(`${BASE_URL}/v2/reference/tickers/${symbol}?apiKey=${this.apikey}`).then(( data ) => {
+		axios.get(`${BASE_URL}/v3/reference/tickers?ticker=${symbol}&active=true&sort=ticker&order=asc&limit=10&apiKey=${this.apikey}`).then(( data ) => {
 			console.log('DATAAA', data)
 			let c = Get( data, 'data.results', {} )
-			let intFirst = Get( c, 'aggs.intraday.first', false )
-			let dayFirst = Get( c, 'aggs.daily.first', false )
+			let intFirst = false
+			let dayFirst = false
 			cb({
-				name: c.ticker.ticker,
-				ticker: c.ticker.ticker,
-				type: TickerTypeMap[ c.ticker.type ] || 'stocks',
-				exchange: c.ticker.exchange,
+				name: c[0].ticker,
+				full_name: c[0].name,
+				description: c[0].name,
+				ticker: c[0].ticker,
+				type: TickerTypeMap[ c[0].market ] || 'stocks',
+				exchange: c[0].primary_exchange,
+				listed_exchange: c[0].primary_exchange,
 				timezone: 'America/New_York',
 				first_intraday: intFirst,
-				has_intraday: ( intFirst != false ),
+				has_intraday: true,
 				first_daily: dayFirst,
-				has_daily: ( dayFirst != false ),
+				has_daily: true,
+				minmov: 1,
+				pricescale: 100,
+				session: '0900-1630',
 				supported_resolutions: SUPPORTED_RESOLUTIONS,
 			})
 		})
@@ -142,7 +149,8 @@ class PolygonAdapter {
 	 *  @param  {Boolean}   firstRequest If this is the first request for this symbol
 	 *  @return {null}
 	 */
-	getBars( symbolInfo, resolution, fromts, to, cb, cberr, firstRequest ){
+	getBars( symbolInfo, resolution, periodParams, onHistoryCallback, onErrorCallback ){
+		let {from, to, firstDataRequest} = periodParams;
 		let multiplier = 1
 		let timespan = 'minute'
 		if( resolution == 'D' || resolution == '1D' ) timespan = 'day'
@@ -154,23 +162,27 @@ class PolygonAdapter {
 			timespan = 'hour'
 			multiplier = parseInt( resolution ) / 60
 		}
+		console.log("URL", `${BASE_URL}/v2/aggs/ticker/${symbolInfo.ticker}/range/${multiplier}/${timespan}/${from*1000}/${to*1000}`)
 		axios({
-			url: `${BASE_URL}/v2/aggs/ticker/${symbolInfo.ticker}/range/${multiplier}/${timespan}/${fromts*1000}/${to*1000}`,
+			url: `${BASE_URL}/v2/aggs/ticker/${symbolInfo.ticker}/range/${multiplier}/${timespan}/${from*1000}/${to*1000}`,
 			params: { apikey: this.apikey }
 		}).then(( data ) => {
+			console.log("BARS", data.data.results)
 			let bars = []
+			let nextTime = null;
 			bars = Map( data.data.results, ( t ) => {
+				nextTime = t.t;
 				return {
 					time: t.t,
-					close: t.c, 
-					open: t.o, 
-					high: t.h, 
-					low: t.l, 
+					close: t.c,
+					open: t.o,
+					high: t.h,
+					low: t.l,
 					volume: t.v,
 				}
 			})
-			return cb( bars, { noData: false /* ( bars.length == 0 && timespan != 'minute' ) */ })
-		}).catch( cberr )
+			return onHistoryCallback(bars, {noData: false, nextTime: nextTime })
+		}).catch(onErrorCallback)
 
 	}
 
