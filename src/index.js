@@ -14,7 +14,7 @@ import moment from "moment";
 import PolygonWebsockets from './websockets.js'
 
 const BASE_URL = `https://api.polygon.io`
-const POLL_INTERVAL = 60 // seconds
+const POLL_INTERVAL = 15 // seconds
 
 const SUPPORTED_RESOLUTIONS = ['1', '3', '5', '15', '30', '45', '60', '120', '180', '240', '1D', '1W', '1M', '12M']
 
@@ -47,6 +47,7 @@ class PolygonAdapter {
 		}else{
 			setInterval( this.onInterval.bind( this ), POLL_INTERVAL * 1000 )
 		}
+		console.log('running callback?')
 		cb()
 	}
 
@@ -57,9 +58,8 @@ class PolygonAdapter {
 	 */
 	onInterval(){
 		let now = Date.now()
-		console.log("SUBSCRIPTIONS",this.subscriptions)
 		Each( this.subscriptions, ( sub ) => {
-			this.getBars( sub.symbolInfo, sub.interval, {from : ( ( now - 60*1000 ) / 1000 ), to :( now / 1000 )}, ( ticks ) => {
+			this.getBars( sub.symbolInfo, sub.interval, {from : Math.round( ( now - 120*1000 ) / 1000 ), to :( ( now ) / 1000 )}, ( ticks ) => {
 				if( ticks.length == 0 ) return
 				sub.callback( ticks )
 			})
@@ -105,7 +105,6 @@ class PolygonAdapter {
 	 *  @return {null}
 	 */
 	resolveSymbol( symbol, cb, cberr ){
-		console.log('resolve symbol:', symbol)
 		let TickerTypeMap = {
 			'STOCKS': 'stock',
 			'FX': 'forex',
@@ -162,12 +161,10 @@ class PolygonAdapter {
 			timespan = 'hour'
 			multiplier = parseInt( resolution ) / 60
 		}
-		console.log("URL", `${BASE_URL}/v2/aggs/ticker/${symbolInfo.ticker}/range/${multiplier}/${timespan}/${from*1000}/${to*1000}`)
 		axios({
 			url: `${BASE_URL}/v2/aggs/ticker/${symbolInfo.ticker}/range/${multiplier}/${timespan}/${from*1000}/${to*1000}`,
 			params: { apikey: this.apikey }
 		}).then(( data ) => {
-			console.log("BARS", data.data.results)
 			let bars = []
 			let nextTime = null;
 			bars = Map( data.data.results, ( t ) => {
@@ -181,12 +178,46 @@ class PolygonAdapter {
 					volume: t.v,
 				}
 			})
-			return onHistoryCallback(bars, {noData: false, nextTime: nextTime })
+			if (firstDataRequest) {
+				return onHistoryCallback(bars, {
+					noData: false,
+					nextTime: bars.length === 0 && timespan != "minute" && nextTime
+				})
+			}
+			return onHistoryCallback(bars[bars.length - 1] || bars)
 		}).catch(onErrorCallback)
 
 	}
 
-	
+	getBar( symbolInfo, resolution, periodParams, onRealtimeCallback, onErrorCallback ){
+		let {from, to} = periodParams;
+		let multiplier = 1
+		let timespan = 'minute'
+		axios({
+			url: `${BASE_URL}/v2/aggs/ticker/${symbolInfo.ticker}/range/${multiplier}/${timespan}/${from*1000}/${to*1000}`,
+			params: { apikey: this.apikey }
+		}).then(( data ) => {
+			let bars = []
+			let nextTime = null;
+			if (data.data.results !== undefined) {
+				bars = Map(data.data.results, (t) => {
+					nextTime = t.t;
+					return {
+						time: t.t,
+						close: t.c,
+						open: t.o,
+						high: t.h,
+						low: t.l,
+						volume: t.v,
+					}
+				})
+				return onRealtimeCallback(bars)
+			}
+		}).catch(onErrorCallback)
+
+	}
+
+
 	/**
 	 *  Subscribe to future updates for this symbol
 	 *  @param  {Object}   symbolInfo Object returned from `resolveSymbol`
@@ -195,12 +226,12 @@ class PolygonAdapter {
 	 *  @param  {String}   key        Unique key for this subscription
 	 *  @return {null}
 	 */
-	subscribeBars( symbolInfo, interval, cb, key ){
+	subscribeBars( symbolInfo, interval, onRealTimeCallback, key ){
 		let sub = {
 			key: `${key}`,
 			symbolInfo: symbolInfo,
 			interval: interval,
-			callback: cb,
+			callback: onRealTimeCallback,
 		}
 		// Currently only allow minute subscriptions:
 		if( sub.interval != '1' ) return
@@ -208,7 +239,7 @@ class PolygonAdapter {
 		this.subscriptions.push( sub )
 	}
 
-	
+
 	/**
 	 *  Unsubscribe from future updates for a symbol
 	 *  @param  {String} key Unique key for this subscription
